@@ -1,17 +1,14 @@
-<?php
-
-namespace Mews\Purifier\Facades;
+<?php namespace Mews\Purifier\Facades;
 
 use Illuminate\Support\Facades\Facade;
 
-/**
- * @see \Mews\Purifier
- */
-class Purifier extends Facade
-{
+class Purifier extends Facade {
 
-    protected static function getFacadeAccessor()
-    {
-        return 'purifier';
-    }
+    /**
+     * Get the registered name of the component.
+     *
+     * @return string
+     */
+    protected static function getFacadeAccessor() { return 'purifier'; }
+
 }

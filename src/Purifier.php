@@ -1,269 +1,159 @@
-<?php
+<?php namespace Mews\Purifier;
 
-namespace Mews\Purifier;
+use Config;
 
-/**
- * Laravel 5 HTMLPurifier package
- *
- * @copyright Copyright (c) 2015 MeWebStudio
- * @version   2.0.0
- * @author    Muharrem ERİN
- * @contact me@mewebstudio.com
- * @web http://www.mewebstudio.com
- * @date      2014-04-02
- * @license   MIT
- */
-
-use Exception;
 use HTMLPurifier;
 use HTMLPurifier_Config;
-use Illuminate\Contracts\Config\Repository;
-use Illuminate\Filesystem\Filesystem;
 
-class Purifier
-{
+/*
+ * This file is part of HTMLPurifier Bundle.
+ * (c) 2012 Maxime Dizerens
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
+/**
+ *
+ * Modified
+ * Laravel 4 HTMLPurifier package
+ * @copyright Copyright (c) 2013 MeWebStudio
+ * @version 1.0.0
+ * @author Muharrem ERİN
+ * @contact me@mewebstudio.com
+ * @link http://www.mewebstudio.com
+ * @date 2013-03-21
+ * @license http://www.gnu.org/licenses/lgpl-2.1.html GNU Lesser General Public License, version 2.1
+ *
+ */
+
+class Purifier {
 
     /**
-     * @var Filesystem
+     * @var  HTMLPurifier  singleton instance of the HTML Purifier object
      */
-    protected $files;
+    protected static $singleton;
 
     /**
-     * @var Repository
+     * @var  array  set of configuration objects
      */
-    protected $config;
+    protected static $configs;
 
     /**
-     * @var HTMLPurifier
-     */
-    protected $purifier;
-
-    /**
-     * Constructor
+     * Returns the singleton instance of HTML Purifier. If no instance has
+     * been created, a new instance will be created.
      *
-     * @param Filesystem $files
-     * @param Repository $config
-     * @throws Exception
-     */
-    public function __construct(Filesystem $files, Repository $config)
-    {
-        $this->files = $files;
-        $this->config = $config;
-
-        $this->setUp();
-    }
-
-    /**
-     * Setup
+     *     $purifier = Purifier::instance();
      *
-     * @throws Exception
+     * @return  HTMLPurifier
      */
-    private function setUp()
+    public static function instance()
     {
-        if (!$this->config->has('purifier')) {
-            throw new Exception('Configuration parameters not loaded!');
-        }
+        if (!Purifier::$singleton) {
+            if (!class_exists('HTMLPurifier_Config', false)) {
+                if (Config::get('purifier::config.preload')) {
+                    // Load the all of HTML Purifier right now.
+                    // This increases performance with a slight hit to memory usage.
+                    require base_path('vendor/ezyang/htmlpurifier/library/') . 'HTMLPurifier.includes.php';
+                }
 
-        $this->checkCacheDirectory();
-
-        // Create a new configuration object
-        $config = HTMLPurifier_Config::createDefault();
-
-        // Allow configuration to be modified
-        if (!$this->config->get('purifier.finalize')) {
-            $config->autoFinalize = false;
-        }
-
-        $config->loadArray($this->getConfig());
-        
-        // Load custom definition if set
-        if ($definitionConfig = $this->config->get('purifier.settings.custom_definition')) {
-	        $this->addCustomDefinition($definitionConfig, $config);
-        }
-        
-        // Load custom elements if set
-        if ($elements = $this->config->get('purifier.settings.custom_elements')) {
-	        if ($def = $config->maybeGetRawHTMLDefinition()) {
-		        $this->addCustomElements($elements, $def);
-	        }
-        }
-        
-        // Load custom attributes if set
-        if ($attributes = $this->config->get('purifier.settings.custom_attributes')) {
-	        if ($def = $config->maybeGetRawHTMLDefinition()) {
-		        $this->addCustomAttributes($attributes, $def);
-	        }
-        }
-
-        // Create HTMLPurifier object
-        $this->purifier = new HTMLPurifier($this->configure($config));
-    }
-    
-    /**
-	 * Add a custom definition
-	 *
-	 * @see http://htmlpurifier.org/docs/enduser-customize.html
-	 * @param array $definitionConfig
-	 * @param HTML_Purifier_Config $configObject Defaults to using default config
-	 * 
-	 * @return HTML_Purifier_Config $configObject
-	 */
-	private function addCustomDefinition(array $definitionConfig, $configObject = null)
-	{
-		if (!$configObject) {
-			$configObject = HTMLPurifier_Config::createDefault();
-			$configObject->loadArray($this->getConfig());
-		}
-		
-		// Setup the custom definition
-		$configObject->set('HTML.DefinitionID', $definitionConfig['id']);
-		$configObject->set('HTML.DefinitionRev', $definitionConfig['rev']);
-		
-		// Enable debug mode
-		if (!isset($definitionConfig['debug']) || $definitionConfig['debug']) {
-			$configObject->set('Cache.DefinitionImpl', null);
-		}
-		
-		// Start configuring the definition
-		if ($def = $configObject->maybeGetRawHTMLDefinition()) {
-			// Create the definition attributes
-			if (!empty($definitionConfig['attributes'])) {
-				$this->addCustomAttributes($definitionConfig['attributes'], $def);
-			}
-			
-			// Create the definition elements
-			if (!empty($definitionConfig['elements'])) {
-				$this->addCustomElements($definitionConfig['elements'], $def);
-			}
-		}
-		
-		return $configObject;
-	}
-	
-	/**
-	 * Add provided attributes to the provided definition
-	 *
-	 * @param array $attributes
-	 * @param HTMLPurifier_HTMLDefinition $definition
-	 * 
-	 * @return HTMLPurifier_HTMLDefinition $definition
-	 */
-	private function addCustomAttributes(array $attributes, $definition)
-	{
-		foreach ($attributes as $attribute) {
-			// Get configuration of attribute
-			$required = !empty($attribute[3]) ? true : false;
-			$onElement = $attribute[0];
-			$attrName = $required ? $attribute[1] . '*' : $attribute[1];
-			$validValues = $attribute[2];
-			
-			$definition->addAttribute($onElement, $attrName, $validValues);
-		}
-		
-		return $definition;
-	}
-	
-	/**
-	 * Add provided elements to the provided definition
-	 *
-	 * @param array $elements
-	 * @param HTMLPurifier_HTMLDefinition $definition
-	 * 
-	 * @return HTMLPurifier_HTMLDefinition $definition
-	 */
-	private function addCustomElements(array $elements, $definition)
-	{
-		foreach ($elements as $element) {
-			// Get configuration of element
-			$name = $element[0];
-			$contentSet = $element[1];
-			$allowedChildren = $element[2];
-			$attributeCollection = $element[3];
-			$attributes = isset($element[4]) ? $element[4] : null;
-			
-			if (!empty($attributes)) {
-				$definition->addElement($name, $contentSet, $allowedChildren, $attributeCollection, $attributes);
-			} else {
-				$definition->addElement($name, $contentSet, $allowedChildren, $attributeCollection);
-			}
-		}
-	}
-
-    /**
-     * Check/Create cache directory
-     */
-    private function checkCacheDirectory()
-    {
-        $cachePath = $this->config->get('purifier.cachePath');
-
-        if ($cachePath) {
-            if (!$this->files->isDirectory($cachePath)) {
-                $this->files->makeDirectory($cachePath, $this->config->get('purifier.cacheFileMode', 0755));
+                // Load the HTML Purifier auto loader
+                require base_path('vendor/ezyang/htmlpurifier/library/') . 'HTMLPurifier.auto.php';
             }
+
+            // Create a new configuration object
+            $config = HTMLPurifier_Config::createDefault();
+
+            // Allow configuration to be modified
+            if (!Config::get('purifier::config.finalize')) {
+                $config->autoFinalize = false;
+            }
+
+            // Use the same character set as Laravel
+            $config->set('Core.Encoding', Config::get('purifier::config.encoding'));
+            $config->set('Cache.SerializerPath', Config::get('purifier::config.cachePath'));
+
+            if (!Config::get('purifier::config.useCache')) {
+                $config->set('Cache.DefinitionImpl', null);
+            }
+
+
+            if (is_array(Config::get('purifier::config.settings.default'))) {
+                // Load the settings
+                $config->loadArray(Config::get('purifier::config.settings.default'));
+            }
+
+            // Configure additional options
+            $config = Purifier::configure($config);
+            Purifier::$configs['default'] = $config;
+
+            // Create the purifier instance
+            Purifier::$singleton = new HTMLPurifier($config);
         }
+
+        return Purifier::$singleton;
     }
 
     /**
-     * @param HTMLPurifier_Config $config
-     * 
-     * @return HTMLPurifier_Config
+     * Modifies the configuration before creating a HTML Purifier instance.
+     *
+     * [!!] You must create an extension and overload this method to use it.
+     *
+     * @param   HTMLPurifier_Config  configuration object
+     * @return  HTMLPurifier_Config
      */
-    protected function configure(HTMLPurifier_Config $config)
+    public static function configure(HTMLPurifier_Config $config)
     {
-        return HTMLPurifier_Config::inherit($config);
-    }
-
-    /**
-     * @param null $config
-     * 
-     * @return mixed|null
-     */
-    protected function getConfig($config = null)
-    {
-        $default_config = [];
-        $default_config['Core.Encoding'] = $this->config->get('purifier.encoding');
-        $default_config['Cache.SerializerPath'] = $this->config->get('purifier.cachePath');
-        $default_config['Cache.SerializerPermissions'] = $this->config->get('purifier.cacheFileMode', 0755);
-
-        if (!$config) {
-            $config = $this->config->get('purifier.settings.default');
-        } elseif (is_string($config)) {
-            $config = $this->config->get('purifier.settings.'.$config);
-        }
-
-        if (!is_array($config)) {
-            $config = [];
-        }
-
-        $config = $default_config + $config;
-
         return $config;
     }
 
     /**
-     * @param      $dirty
-     * @param null $config
-     * 
-     * @return mixed
+     * Removes broken HTML and XSS from text using [HTMLPurifier](http://htmlpurifier.org/).
+     *
+     *     $text = Purifier::clean($dirty_html);
+     *
+     * The original content is returned with all broken HTML and XSS removed.
+     *
+     * @param   mixed   text to clean, or an array to clean recursively
+     * @param   mixed   optional set of configuration options, as an array or a string denoting a set of options in the config file
+     * @return  mixed
      */
-    public function clean($dirty, $config = null)
+    public static function clean($dirty, $config = null)
     {
         if (is_array($dirty)) {
-            return array_map(function ($item) use ($config) {
-                return $this->clean($item, $config);
-            }, $dirty);
+            // Define clean variable for empty array
+            $clean = [];
+
+            foreach ($dirty as $key => $value) {
+                // Recursively clean arrays
+                $clean[$key] = Purifier::clean($value, $config);
+            }
+        } else {
+            // Load HTML Purifier
+            $purifier = Purifier::instance();
+
+            // Clean the HTML and return it
+            if(is_array($config)) {
+                $c = HTMLPurifier_Config::inherit(Purifier::$configs['default']);
+                $c->loadArray($config);
+
+                $clean = $purifier->purify($dirty, $c);
+            } else if(is_string($config)) {
+                if(isset(Purifier::$configs[$config])) {
+                    $c = Purifier::$configs[$config];
+                } else {
+                    $c = HTMLPurifier_Config::inherit(Purifier::$configs['default']);
+                    $c->loadArray(Config::get('purifier::config.settings.' . $config));
+                    Purifier::$configs[$config] = $c;
+                }
+
+                $clean = $purifier->purify($dirty, $c);
+            } else {
+                $clean = $purifier->purify($dirty, Purifier::$configs['default']);
+            }
         }
 
-        return $this->purifier->purify($dirty, $this->getConfig($config));
+        return $clean;
     }
 
-    /**
-     * Get HTMLPurifier instance.
-     *
-     * @return \HTMLPurifier
-     */
-    public function getInstance()
-    {
-        return $this->purifier;
-    }
 }

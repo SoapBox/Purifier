@@ -1,67 +1,73 @@
 <?php namespace Mews\Purifier;
 
-use Illuminate\Container\Container;
-use Illuminate\Foundation\Application as LaravelApplication;
 use Illuminate\Support\ServiceProvider;
-use Laravel\Lumen\Application as LumenApplication;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Config;
 
-class PurifierServiceProvider extends ServiceProvider
-{
-    /**
-     * Indicates if loading of the provider is deferred.
-     *
-     * @var bool
-     */
-    protected $defer = true;
+class PurifierServiceProvider extends ServiceProvider {
 
     /**
-     * Boot the service provider.
-     *
-     * @return null
-     */
+      * Indicates if loading of the provider is deferred.
+      *
+      * @var bool
+      */
+    protected $defer = false;
+
+    /**
+      * Bootstrap the application events.
+      *
+      * @return void
+      */
     public function boot()
     {
-        $this->setupConfig();
+        $this->package('mews/purifier');
+
+        $app = $this->app;
+
+        $this->app->finish(function() use ($app) {});
+
+        $this->makeStorageSerializerDir();
     }
 
     /**
-     * Setup the config.
-     *
-     * @return void
-     */
-    protected function setupConfig()
-    {
-        $source = realpath(__DIR__.'/../config/purifier.php');
-        if ($this->app instanceof LaravelApplication && $this->app->runningInConsole()) {
-            $this->publishes([$source => config_path('purifier.php')]);
-        } elseif ($this->app instanceof LumenApplication) {
-            $this->app->configure('purifier');
-        }
-        $this->mergeConfigFrom($source, 'purifier');
-    }
-
-
-    /**
-     * Register the service provider.
-     *
-     * @return void
-     */
+      * Register the service provider.
+      *
+      * @return void
+      */
     public function register()
     {
-        $this->app->singleton('purifier', function (Container $app) {
-            return new Purifier($app['files'], $app['config']);
+        $this->app['purifier'] = $this->app->share(function($app)
+        {
+            return new Purifier($app['view'], $app['config']);
         });
-
-        $this->app->alias('purifier', Purifier::class);
     }
 
     /**
-     * Get the services provided by the provider.
-     *
-     * @return array
-     */
+      * Get the services provided by the provider.
+      *
+      * @return array
+      */
     public function provides()
     {
-        return ['purifier'];
+        return array('purifier');
     }
+
+    /**
+      * Check for cache path, and create if missing
+      */
+    protected function makeStorageSerializerDir()
+    {
+        $useCache = Config::get('purifier::config.useCache');
+        $purifierCachePath = Config::get('purifier::config.cachePath');
+        if ($useCache) {
+            if (File::exists($purifierCachePath) === false) {
+                File::makeDirectory($purifierCachePath);
+
+                $gitIgnoreContent = '*';
+                $gitIgnoreContent .= "\n" . '!.gitignore';
+                File::put($purifierCachePath . '/.gitignore', $gitIgnoreContent);
+            }
+        }
+    }
+
 }
